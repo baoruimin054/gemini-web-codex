@@ -1,5 +1,5 @@
 param(
-    [string]$Python = 'python',
+    [string]$Python,
     [switch]$NoShortcut
 )
 
@@ -40,9 +40,24 @@ function Install-EgoIfMissing {
 }
 
 if (-not (Test-Path -LiteralPath $runtime)) {
-    & $Python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'
-    if ($LASTEXITCODE -ne 0) { throw 'Python 3.12 or newer is required.' }
-    & $Python -m venv $environment
+    $pythonArgs = @()
+    if (-not $Python) {
+        $py = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue
+        $native = Get-Command python.exe -CommandType Application -All -ErrorAction SilentlyContinue |
+            Where-Object Source -NotLike '*\Microsoft\WindowsApps\*' | Select-Object -First 1
+        if ($py -and $py.Source -notlike '*\Microsoft\WindowsApps\*') {
+            & $py.Source -3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'
+            if ($LASTEXITCODE -eq 0) {
+                $Python = $py.Source
+                $pythonArgs = @('-3')
+            }
+        }
+        if (-not $Python -and $native) { $Python = $native.Source }
+    }
+    if (-not $Python) { throw 'Install Python 3.12+ from python.org, or supply -Python with the full python.exe path.' }
+    & $Python @pythonArgs -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'
+    if ($LASTEXITCODE -ne 0) { throw 'Python 3.12+ with Tkinter is required. You can supply -Python with its full executable path.' }
+    & $Python @pythonArgs -m venv $environment
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the local Python environment.' }
 }
 

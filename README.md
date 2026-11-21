@@ -18,6 +18,8 @@ Gemini 的登录状态保存在 Ego Lite，应用只检验网页中是否已登�
 
 本地运行数据位于 `%LOCALAPPDATA%\CodexGeminiWeb`。首次启动会生成本地网关凭据和 Codex 配置。已有安装会继续使用该目录里的设置。运行 `.\Gemini-Desktop.cmd` 可以在终端中查看启动错误。
 
+安装版本见 `VERSION`。登录检查结果记录在 `%LOCALAPPDATA%\CodexGeminiWeb\gemini-login.log`。安装脚本优先查找 Python Launcher，也可手动指定 `-Python` 和 Python 可执行文件的完整路径。
+
 ## 运行方式
 
 - 网关只监听 `127.0.0.1:18473`。Codex 发送请求前会读取本机生成的网关凭据。

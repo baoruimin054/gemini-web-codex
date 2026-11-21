@@ -1,17 +1,38 @@
 """Locate the CLI from the desktop Ego installation, even without a PATH entry."""
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
+import winreg
+
+
+def ego_locations():
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(hive, r'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\ego.exe') as key:
+                value, _ = winreg.QueryValueEx(key, None)
+            yield Path(os.path.expandvars(value.strip('"'))).parent
+        except OSError:
+            continue
+    local = Path(os.environ['LOCALAPPDATA'])
+    yield Path(os.environ.get('ProgramFiles', r'C:\Program Files')) / 'Citro Labs' / 'ego lite' / 'Application'
+    yield local / 'Citro Labs' / 'ego lite' / 'Application'
+    yield local / 'Programs' / 'Citro Labs' / 'ego lite' / 'Application'
 
 
 def ego_cli():
-    application = Path(os.environ.get('ProgramFiles', r'C:\Program Files')) / 'Citro Labs' / 'ego lite' / 'Application'
-    versions = [p for p in application.glob('*') if all(part.isdecimal() for part in p.name.split('.'))]
-    for version in sorted(versions, key=lambda p: tuple(map(int, p.name.split('.'))), reverse=True):
-        exe = version / 'ego-browser.exe'
-        if exe.is_file():
-            return str(exe)
+    for application in ego_locations():
+        installed = []
+        for exe in application.glob('*/ego-browser.exe'):
+            match = re.match(r'^\d+(?:\.\d+)*', exe.parent.name)
+            if match and exe.is_file():
+                installed.append((tuple(map(int, match[0].split('.'))), exe))
+        if installed:
+            return str(max(installed, key=lambda item: item[0])[1])
+        direct = application / 'ego-browser.exe'
+        if direct.is_file():
+            return str(direct)
     exe = shutil.which('ego-browser')
     if exe:
         return exe
