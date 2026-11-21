@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.artifact-venv/
+.venv/
+dist/
+*.log
+.env
+.env.*
+gateway.key
+quota.json
+cleanup-probes.json
+client/
+conversations/
+desktop/
+logs/
+steps/
+tmp*/
