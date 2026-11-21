@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import {geminiProfile} from './gemini_site.mjs';
 
 export function parseRows(rows) {
   function windowData(label) {
@@ -16,7 +17,7 @@ export async function collect(file) {
   const name = 'Gemini usage monitor';
   const existing = (await listTaskSpaces()).find(s => s.name === name);
   if (existing && existing.ownership !== 'agent') throw Error('额度页面正在使用中');
-  const task = existing ? await taskSpace(existing.id) : await taskSpace(name, {profileId:'Profile 1'});
+  const task = existing ? await taskSpace(existing.id) : await taskSpace(name, {profileId:(await geminiProfile())?.id});
   try {
     const page = (await task.pages())[0] ?? await task.newPage();
     await page.goto('https://gemini.google.com/usage?hl=en');

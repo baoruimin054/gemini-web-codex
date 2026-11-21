@@ -9,6 +9,7 @@ dist/
 gateway.key
 quota.json
 cleanup-probes.json
+gemini-login-verified
 client/
 conversations/
 desktop/

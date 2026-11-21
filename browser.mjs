@@ -2,9 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
+import {geminiApp, geminiPageStatus, geminiProfile} from './gemini_site.mjs';
 
 const picker = 'button[aria-label^="Open mode picker"]';
-const geminiApp = 'https://gemini.google.com/app';
 
 export function hasSubmittedTurn(marker) {
   return Array.from(document.querySelectorAll('user-query'))
@@ -69,10 +69,9 @@ export async function openGemini(page, target) {
   try {
     await page.waitForSelector(picker, {timeout: 45000});
   } catch (error) {
-    const regionBlocked = await page.evaluate(() =>
-      /isn.t currently supported in your country|您所在的国家或地区暂不支持/.test(document.body.innerText)
-    ).catch(() => false);
-    if (regionBlocked) throw Error('Gemini 网页提示当前地区暂不支持，消息没有发送。');
+    const status = await page.evaluate(geminiPageStatus).catch(() => null);
+    if (status === 'region_unavailable') throw Error('Gemini 网页提示当前地区暂不支持，消息没有发送。');
+    if (status === 'login_required') throw Error('Gemini 登录已失效，请在 Ego Lite 登录，或运行 Gemini-Codex.cmd --setup。');
     throw error;
   }
 }
@@ -150,7 +149,7 @@ export async function run(jobUrl) {
   const saved = (await listTaskSpaces()).find(s=>s.name===name && (!session.space || s.id===session.space));
   if (!space && session.space && !saved) throw Error('EGO_BOUND_SPACE_NOT_FOUND');
   if (saved && !['agent','user'].includes(saved.ownership)) throw Error('Gemini 会话正在由用户操作');
-  const task = space ? await taskSpace(space) : saved ? (saved.ownership==='user' ? await claimTaskSpace(saved.id) : await taskSpace(saved.id)) : await taskSpace(name, {profileId:'Profile 1'});
+  const task = space ? await taskSpace(space) : saved ? (saved.ownership==='user' ? await claimTaskSpace(saved.id) : await taskSpace(saved.id)) : await taskSpace(name, {profileId:(await geminiProfile())?.id});
   const tabs=await task.tabs();
   const tab=tabs.find(t=>session.targetId && t.targetId===session.targetId) ??
     tabs.find(t=>session.url && t.url===session.url) ?? ((!saved || !session.url) && tabs.length===1 ? tabs[0] : undefined);

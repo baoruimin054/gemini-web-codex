@@ -54,6 +54,13 @@ def wait_for_desktop(pid, stop_event):
             waiter.wait(timeout=5)
 
 def main():
+    if sys.argv[1:2] != ['--attach-desktop']:
+        from first_run import ensure_login
+        setup = sys.argv[1:] == ['--setup']
+        if not ensure_login(gateway.STATE, force=setup):
+            return 0
+        if setup:
+            return 0
     home=gateway.STATE/'client'
     home.mkdir(parents=True,exist_ok=True)
     cfg=home/'config.toml'

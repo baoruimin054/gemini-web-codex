@@ -19,6 +19,19 @@ def ego_cli():
     return str(legacy) if legacy.is_file() else None
 
 
+def ego_binary(cli):
+    folder = Path(cli).parent
+    return next((candidate for candidate in (folder.parent / 'ego.exe', folder / 'ego.exe')
+                 if candidate.is_file()), None)
+
+
+def preferred_profile():
+    local = Path(os.environ['LOCALAPPDATA']) / 'Citro Labs'
+    if any((local / app / 'User Data' / 'Profile 1').is_dir() for app in ('ego lite', 'ego')):
+        return 'Profile 1'
+    return None
+
+
 def ensure_ego_background(cli):
     """Start the installed profile quietly before the CLI tries to open Ego."""
     result = subprocess.run(
@@ -29,16 +42,16 @@ def ensure_ego_background(cli):
     if any(line.casefold().startswith('"ego.exe",') for line in result.stdout.splitlines()):
         return
 
-    folder = Path(cli).parent
-    binary = next((candidate for candidate in (folder.parent / 'ego.exe', folder / 'ego.exe')
-                   if candidate.is_file()), None)
+    binary = ego_binary(cli)
     if binary is None:
         raise FileNotFoundError('ego.exe')
+    picked = preferred_profile()
+    profile = [f'--profile-directory={picked}'] if picked else []
     startup = subprocess.STARTUPINFO()
     startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     startup.wShowWindow = 7  # SW_SHOWMINNOACTIVE
     process = subprocess.Popen(
-        [str(binary), '--profile-directory=Profile 1', '--startup-ego-browser-service', '--start-minimized'],
+        [str(binary), *profile, '--startup-ego-browser-service', '--start-minimized'],
         startupinfo=startup, creationflags=subprocess.CREATE_NO_WINDOW,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
