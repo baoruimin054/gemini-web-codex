@@ -6,6 +6,14 @@ import {geminiApp, geminiPageStatus, geminiProfile} from './gemini_site.mjs';
 
 const picker = 'button[aria-label^="Open mode picker"]';
 
+export function readModelChoice(label, fromResponse=false) {
+  const prefix = fromResponse ? /^Used\s+(?:Gemini\s+)?4\s+/i : /^Open mode picker, currently\s+/i;
+  if (!prefix.test(label ?? '')) return [];
+  const suffix = fromResponse ? /^(\w+)(?:\s+(Low|Medium|High))?(?=\s|$)/i :
+    /^(\w+)(?:\s+(Low|Medium|High))?\s*$/i;
+  return label.replace(prefix, '').match(suffix)?.slice(1) ?? [];
+}
+
 export function hasSubmittedTurn(marker) {
   return Array.from(document.querySelectorAll('user-query'))
     .some(query => query.textContent.includes(marker));
@@ -42,8 +50,8 @@ export async function responseDetails(page,note,mode,effort,summaries) {
       return {used,titles};
     });
     if (used) {
-      const actual=used.match(/^Used\s+(?:Gemini\s+)?4\s+(Argon|Hydrogen)(?:\s+(Low|Medium|High))?(?:\s|$)/i);
-      if (!actual || actual[1].toLowerCase()!==mode.toLowerCase() || (actual[2] && actual[2].toLowerCase()!==effort))
+      const [actualMode,actualEffort]=readModelChoice(used,true);
+      if (actualMode?.toLowerCase()!==mode.toLowerCase() || (actualEffort && actualEffort.toLowerCase()!==effort))
         throw Error('Codex 请求 '+mode+' · '+effort+'，但 Gemini 回复详情显示 '+used.slice(0,90)+'。本轮结果未采用。');
       await note('Gemini 回复详情确认：'+used.slice(5)+'。');
     }
@@ -87,7 +95,7 @@ async function openModelMenu(page, mode) {
   }
   await page.waitForSelector(options,{timeout:10000});
   const limit=await page.evaluate(({options,mode})=>{
-    const description={Hydrogen:'Everyday help',Argon:'Code & analysis'}[mode];
+    const description={Hydrogen:'Everyday help',Argon:'Code & analysis',Neon:'Deeper analysis'}[mode];
     const option=Array.from(document.querySelectorAll(options)).find(e=>
       e.checkVisibility() && e.innerText.split('\n').map(s=>s.trim()).some(s=>s===description || s==='4 '+mode));
     return option?.innerText.match(/Limit resets[^\n]*/i)?.[0];
@@ -175,28 +183,39 @@ export async function run(jobUrl) {
   await page.waitForSelector(picker,{timeout:30000});
   if (session.url && await page.url()!==session.url) throw Error('原 Gemini 会话未能打开。');
   await save();
-  const selection = () => page.evaluate(() => {
-    const label = document.querySelector('button[aria-label^="Open mode picker"]')?.ariaLabel;
-    return label?.match(/currently (Hydrogen|Argon)(?: (Low|Medium|High))?$/i)?.slice(1) ?? [];
-  });
+  const selection = async () => readModelChoice(await page.evaluate(s => document.querySelector(s)?.ariaLabel,picker));
   async function verifySelection() {
     if ((await selection())[0] !== mode) {
       await openModelMenu(page,mode);
-      await page.waitForFunction(name => {
-        const option = Array.from(document.querySelectorAll('[role=menu] [role=menuitemradio]'))
-          .find(e => e.innerText.split('\n').some(line => line.trim() === '4 ' + name));
-        if (!option) return false;
-        if (option.getAttribute('aria-disabled') === 'true' || option.innerText.split('\n').includes('lock')) {
-          throw Error('Requested Gemini model is unavailable');
-        }
+      const optionSelector = '[role=menuitemradio][data-mode-id]';
+      const hasMode = ({selector, name}) => Array.from(document.querySelectorAll(selector)).some(e =>
+        e.checkVisibility() && e.innerText.split('\n').some(line => line.trim() === '4 ' + name));
+      const selectionArgs = {selector:optionSelector,name:mode};
+      try {
+        await page.waitForFunction(hasMode, selectionArgs, {timeout:8000});
+      } catch (error) {
+        if (!/timed out/i.test(String(error))) throw error;
+        await page.keyboard.press('Escape');
+        throw Error('当前 Gemini 网页里没有可用的 '+mode+' 模型，本次请求尚未发送。');
+      }
+      const clicked = await page.evaluate(({selector,name})=>{
+        const option=Array.from(document.querySelectorAll(selector)).find(e =>
+          e.checkVisibility() && e.innerText.split('\n').some(line => line.trim() === '4 ' + name));
+        if (!option || option.getAttribute('aria-disabled') === 'true' ||
+            option.getAttribute('data-mode-id')?.startsWith('upsell_') ||
+            option.innerText.split('\n').includes('lock')) return false;
         option.click();
         return true;
-      }, mode);
-      await page.waitForFunction(name => {
-        const label = document.querySelector('button[aria-label^="Open mode picker"]')?.ariaLabel;
-        return label?.match(/currently (Hydrogen|Argon)(?: (Low|Medium|High))?$/i)?.[1] === name &&
-          !document.querySelector('[role=menu]');
-      }, mode);
+      }, selectionArgs);
+      if (!clicked) {
+        await page.keyboard.press('Escape');
+        throw Error('当前 Gemini 网页的 '+mode+' 尚未解锁，本次请求尚未发送。');
+      }
+      await page.waitForFunction(({selector,name})=>{
+        const label = document.querySelector(selector)?.ariaLabel;
+        return label?.replace(/\s+(Low|Medium|High)$/i,'') === 'Open mode picker, currently '+name &&
+          !Array.from(document.querySelectorAll('[role=menu]')).some(e=>e.checkVisibility());
+      }, {selector:picker,name:mode}, {timeout:12000});
     }
     // Reuse a verified setting only when the live picker explicitly confirms both values.
     const [liveModel,liveLevel]=await selection();

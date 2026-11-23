@@ -23,7 +23,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as HTTPServe
 ROOT = Path(__file__).resolve().parent
 STATE = Path(os.environ['LOCALAPPDATA']) / 'CodexGeminiWeb'
 PORT = 18473
-MODELS = {'gemini-web-4-argon': 'Argon', 'gemini-web-4-hydrogen': 'Hydrogen'}
+VISIBLE_MODELS = {'gemini-web-4-hydrogen': 'Hydrogen', 'gemini-web-4-neon': 'Neon'}
+# Old Codex chats may still refer to Argon. The browser checks availability.
+MODELS = {**VISIBLE_MODELS, 'gemini-web-4-argon': 'Argon'}
 LEVELS = {'low': 'Fast and efficient', 'medium': 'Balanced depth', 'high': 'Extra thorough'}
 BROWSER = ThreadPoolExecutor(max_workers=1, thread_name_prefix='gemini-web')
 SLOTS = threading.BoundedSemaphore(6)
@@ -52,7 +54,7 @@ def catalog():
                                     for level, description in LEVELS.items()], supported_in_api=True,
         priority=i, support_verbosity=False, truncation_policy={'mode':'tokens','limit':8000},
         supports_reasoning_summaries=True, experimental_supported_tools=[], input_modalities=['text','image'], context_window=32768)
-        for i,(k,v) in enumerate(MODELS.items())]}
+        for i,(k,v) in enumerate(VISIBLE_MODELS.items())]}
 
 
 class StalledConversation(RuntimeError):

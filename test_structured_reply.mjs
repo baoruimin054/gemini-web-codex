@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hasSubmittedTurn, openGemini, structuredReply } from './browser.mjs';
+import { hasSubmittedTurn, openGemini, readModelChoice, structuredReply } from './browser.mjs';
+
+test('Gemini picker and response details identify the selected Neon model', () => {
+  assert.deepEqual(readModelChoice('Open mode picker, currently Neon High'), ['Neon', 'High']);
+  assert.deepEqual(readModelChoice('Used Gemini 4 Neon High (preview)', true), ['Neon', 'High']);
+});
 
 test('loading an older Gemini message does not confirm a new submission', () => {
   const original = globalThis.document;
