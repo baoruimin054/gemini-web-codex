@@ -5,13 +5,13 @@
 ## 安装
 
 1. 安装 Windows 版 Codex 和带 Tkinter 的 Python 3.12 或更新版本。
-2. 解压发布包到准备长期使用的目录，双击 `Install.cmd`，或从项目根目录运行下面的命令。安装程序会创建 Python 环境和桌面快捷方式。缺少 Ego Lite 时，会从官网下载安装器，核验 Citro Labs 的数字签名并打开安装向导。根据 Windows 和 Ego Lite 的提示完成安装与首次设置。
+2. 解压发布包到准备长期使用的目录，打开包内的文件夹，双击 **启动 Gemini Codex.cmd**。第一次双击会安装依赖、创建桌面快捷方式，然后打开应用。缺少 Ego Lite 时，会从官网下载安装器，核验 Citro Labs 的数字签名并打开安装向导。根据 Windows 和 Ego Lite 的提示完成安装与首次设置。如果只想安装，也可双击 `Install.cmd` 或从项目根目录运行下面的命令。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 ```
 
-3. 在桌面打开 **Gemini Codex Web**。首次启动时，点击「在 Ego Lite 登录」，在 Google 的网页输入自己的账号并完成验证。回到向导，点击「检查并继续」。如果已在 Ego Lite 登录，直接点击「检查并继续」。
+3. 首次启动时，点击「在 Ego Lite 登录」，在 Google 的网页输入自己的账号并完成验证。回到向导，点击「检查并继续」。如果已在 Ego Lite 登录，直接点击「检查并继续」。之后可从解压目录或桌面上的 **Gemini Codex Web** 快捷方式启动。
 4. 使用 CLI 时运行 `.\Gemini-Codex.cmd`，并确保 `codex` 在 PATH 中。更换账号或登录失效后，可运行 `.\Gemini-Codex.cmd --setup` 再次检查。
 
 Gemini 的登录状态保存在 Ego Lite，应用只检验网页中是否已登录。浏览器优先使用「用户配置 1」（`Profile 1`），没有该配置时使用 Ego Lite 默认配置。

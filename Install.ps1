@@ -85,3 +85,5 @@ if (-not $NoShortcut) {
     $link.Save()
     Write-Host 'Installed. Open the Gemini Codex Web desktop shortcut.'
 }
+
+New-Item -ItemType File -Path (Join-Path $environment 'gemini-codex-installed') -Force | Out-Null
