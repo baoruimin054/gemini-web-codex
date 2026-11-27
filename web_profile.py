@@ -7,7 +7,7 @@ def profile():
     command=json.dumps(Path(sys.executable).as_posix())
     args=json.dumps([(Path(__file__).resolve().parent/'gateway.py').as_posix(),'credential'],ensure_ascii=False)
     return f'''model_provider = "gemini_web"
-model = "gemini-web-4-hydrogen"
+model = "gemini-web-auto"
 web_search = "disabled"
 [sandbox_workspace_write]
 writable_roots = [{json.dumps((Path.home()/'Desktop').as_posix())}]

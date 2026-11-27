@@ -75,7 +75,9 @@ class BridgeTests(unittest.TestCase):
             started.set()
             if cancelled.wait(8): stopped.set()
             raise ConnectionResetError()
-        with patch.object(gateway,'web_reply',worker), gateway.ThreadingHTTPServer(('127.0.0.1',0),gateway.Handler) as server:
+        with (tempfile.TemporaryDirectory() as directory, patch.object(gateway,'STATE',Path(directory)),
+              patch.object(gateway,'web_reply',worker),
+              gateway.ThreadingHTTPServer(('127.0.0.1',0),gateway.Handler) as server):
             server.key='test-only'
             service=threading.Thread(target=server.serve_forever,daemon=True)
             service.start()

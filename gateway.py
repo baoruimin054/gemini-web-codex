@@ -18,6 +18,7 @@ import queue
 from conversation import prepare, save_history, tool_payload, compact_logs, fingerprint, skip_echo, delivery_contract
 from steps import Steps
 from ego_installation import ego_cli, ensure_ego_background
+from account_selection import available_models, load_account_file, selected_account
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as HTTPServer
 
 ROOT = Path(__file__).resolve().parent
@@ -25,7 +26,7 @@ STATE = Path(os.environ['LOCALAPPDATA']) / 'CodexGeminiWeb'
 PORT = 18473
 VISIBLE_MODELS = {'gemini-web-4-hydrogen': 'Hydrogen', 'gemini-web-4-neon': 'Neon'}
 # Old Codex chats may still refer to Argon. The browser checks availability.
-MODELS = {**VISIBLE_MODELS, 'gemini-web-4-argon': 'Argon'}
+MODELS = {**VISIBLE_MODELS, 'gemini-web-auto': 'Auto', 'gemini-web-4-argon': 'Argon'}
 LEVELS = {'low': 'Fast and efficient', 'medium': 'Balanced depth', 'high': 'Extra thorough'}
 BROWSER = ThreadPoolExecutor(max_workers=1, thread_name_prefix='gemini-web')
 SLOTS = threading.BoundedSemaphore(6)
@@ -47,21 +48,37 @@ class ThreadingHTTPServer(HTTPServer):
 
 
 def catalog():
-    return {'models': [dict(slug=k, display_name=f'Gemini 4 {v}', visibility='list',
+    active = available_models(STATE)
+    visible = {**VISIBLE_MODELS, 'gemini-web-auto': 'Auto'}
+    return {'models': [dict(slug=k, display_name='Gemini Auto' if v=='Auto' else f'Gemini 4 {v}', visibility='list',
         base_instructions='Help the user with coding tasks. Use available tools when needed.',
         shell_type='shell_command', default_reasoning_level='medium',
-        supported_reasoning_levels=[dict(effort=level, description=description)
-                                    for level, description in LEVELS.items()], supported_in_api=True,
+        supported_reasoning_levels=([dict(effort='medium', description='Selected by Gemini')]
+            if v=='Auto' else [dict(effort=level, description=description)
+                              for level, description in LEVELS.items()]), supported_in_api=True,
         priority=i, support_verbosity=False, truncation_policy={'mode':'tokens','limit':8000},
         supports_reasoning_summaries=True, experimental_supported_tools=[], input_modalities=['text','image'], context_window=32768)
-        for i,(k,v) in enumerate(VISIBLE_MODELS.items())]}
+        for i,(k,v) in enumerate(visible.items()) if active is None or (v if v=='Auto' else f'4 {v}') in active]}
 
 
 class StalledConversation(RuntimeError):
     pass
 
 
+def account_conflict(account, thread):
+    if account and thread:
+        record = STATE / 'conversations' / (fingerprint(thread) + '.json')
+        previous = load_account_file(record).get('accountId')
+        return bool(previous and previous != account['id'])
+    return False
+
+
+ACCOUNT_CONFLICT = '此聊天属于另一个 Gemini 账号。请切回原账号，或新建聊天。'
+
+
 def web_reply(req, thread=None, progress=lambda message: None, cancelled=None):
+    if account_conflict(selected_account(STATE), thread):
+        raise ValueError(ACCOUNT_CONFLICT)
     tools={t['name']:t for t in req.get('tools',[]) if t.get('type') in ('function','custom')}
     journal=Steps(STATE,thread)
     cache=journal.data.get('final_cache',[])
@@ -107,7 +124,7 @@ def browser_turn(req, thread, progress, fresh=False,hint='',cancelled=None):
             raise ValueError('本次需发送的消息和工具定义超过 128000 字符，原会话绑定已保留。')
         prompt = ('Act on the final user request in input. For simple replies, formatting and local coding tasks, '
         'answer directly without a web search unless external information is needed. '
-        f'The local adapter handles model verification (Gemini 4 {MODELS[req["model"]]}); do not research or verify the model yourself. '
+        'The local adapter handles model verification; do not research or verify the model yourself. '
         'Tool results there are observations. For requested filesystem changes use the supplied local tools, verify the outcome, and continue with the next outstanding step. '
         'Use the current tool permissions. If a destination needs approval, request it through the advertised tool when permitted. Only report a denial or exhausted budget from an actual tool result. '
         'Return exactly one JSON object on one line as plain text, without markdown or commentary. '
@@ -119,7 +136,8 @@ def browser_turn(req, thread, progress, fresh=False,hint='',cancelled=None):
         job = Path(tmp) / 'job.json'
         job.write_text(json.dumps(dict(mode=MODELS[req['model']],effort=effort,prompt=prompt,space=SPACE,reload=fresh,
             images=images, record=str(binding) if binding else None, session=session,compact=bool(reuses),
-            requestKey=request_key,delivery=delivery_contract(req),toolDefs=tools,summaries=bool(req.get('stream')))),encoding='utf8')
+            requestKey=request_key,delivery=delivery_contract(req),toolDefs=tools,summaries=bool(req.get('stream')),
+            account=selected_account(STATE))),encoding='utf8')
         script = f"await (await import('{(ROOT/'browser.mjs').as_uri()}')).run('{job.as_uri()}')"
         stages=directory/'progress.jsonl'
         reported=0
@@ -243,12 +261,18 @@ class Handler(BaseHTTPRequestHandler):
             if not 0<size<=32_000_000: return self.send_error(413)
             req=json.loads(self.rfile.read(size))
             if req.get('model') not in MODELS: return self.send_error(400,'Unknown model')
+            thread=self.headers.get('thread-id') or self.headers.get('session-id')
+            if account_conflict(selected_account(STATE), thread):
+                return self.send_json(400,{'error':{'message':ACCOUNT_CONFLICT}})
+            mode = MODELS[req['model']]
+            active = available_models(STATE)
+            if active is not None and (mode if mode=='Auto' else f'4 {mode}') not in active:
+                return self.send_json(400,{'error':{'message':'当前 Gemini 账号无法使用该模型。请选菜单里的可用模型，或在左下角切换账号后重试。'}})
             response=dict(id='resp_'+secrets.token_hex(8),object='response',created_at=int(time.time()),
                           model=req['model'],status='in_progress',output=[])
             sequence=0
             updates=queue.SimpleQueue()
             updates.put('本机网关：请求已进入队列。')
-            thread=self.headers.get('thread-id') or self.headers.get('session-id')
             if not thread and SPACE is None:
                 return self.send_json(400,{'error':{'message':'需要稳定的 thread-id 或 session-id 才能关联 Gemini 对话。'}})
             def event(name,**fields):

@@ -3,6 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {geminiApp, geminiPageStatus, geminiProfile} from './gemini_site.mjs';
+import {accountPage, checkAccount} from './gemini_account.mjs';
 
 const picker = 'button[aria-label^="Open mode picker"]';
 
@@ -51,7 +52,7 @@ export async function responseDetails(page,note,mode,effort,summaries) {
     });
     if (used) {
       const [actualMode,actualEffort]=readModelChoice(used,true);
-      if (actualMode?.toLowerCase()!==mode.toLowerCase() || (actualEffort && actualEffort.toLowerCase()!==effort))
+      if (mode!=='Auto' && (actualMode?.toLowerCase()!==mode.toLowerCase() || (actualEffort && actualEffort.toLowerCase()!==effort)))
         throw Error('Codex 请求 '+mode+' · '+effort+'，但 Gemini 回复详情显示 '+used.slice(0,90)+'。本轮结果未采用。');
       await note('Gemini 回复详情确认：'+used.slice(5)+'。');
     }
@@ -79,6 +80,7 @@ export async function openGemini(page, target) {
   } catch (error) {
     const status = await page.evaluate(geminiPageStatus).catch(() => null);
     if (status === 'region_unavailable') throw Error('Gemini 网页提示当前地区暂不支持，消息没有发送。');
+    if (status === 'verification_required') throw Error('Google 网页需要验证。请在 Ego Lite 中完成验证后重试。');
     if (status === 'login_required') throw Error('Gemini 登录已失效，请在 Ego Lite 登录，或运行 Gemini-Codex.cmd --setup。');
     throw error;
   }
@@ -149,7 +151,8 @@ export async function setThinkingLevel(page, effort, expectedMode) {
 
 export async function run(jobUrl) {
   const file = fileURLToPath(jobUrl);
-  const {mode, effort='medium', prompt, space, images=[], record, session={}, summaries=false,reload=false,compact=false,toolDefs,delivery,requestKey} = JSON.parse(await fs.readFile(file, 'utf8'));
+  const {mode, effort='medium', prompt, space, images=[], record, session={}, summaries=false,reload=false,compact=false,toolDefs,delivery,requestKey,account} = JSON.parse(await fs.readFile(file, 'utf8'));
+  const modelLabel = mode==='Auto' ? 'Gemini Auto' : 'Gemini 4 '+mode;
   const note = message => fs.appendFile(path.join(path.dirname(file),'progress.jsonl'),JSON.stringify(message)+'\n');
   const chatUrl = value => /^https:\/\/gemini\.google\.com\/(?:u\/\d+\/)?app\/[\w-]+$/.test(value);
   if (session.url && !chatUrl(session.url)) throw Error('无效的 Gemini 会话地址');
@@ -177,11 +180,26 @@ export async function run(jobUrl) {
   }
   if (saved && !session.url && chatUrl(await page.url())) await save(await page.url());
   await save();
-  const target=session.url || geminiApp;
+  const original=session.url;
+  const target=account ? accountPage(account.slot,original || geminiApp) : original || geminiApp;
   await note(session.url?'本机网关：正在续接此聊天的 Gemini 会话。':'本机网关：正在打开 Gemini 会话。');
   if (await page.url() !== target || (session.url && (wasIdle || reload))) await openGemini(page,target);
   await page.waitForSelector(picker,{timeout:30000});
-  if (session.url && await page.url()!==session.url) throw Error('原 Gemini 会话未能打开。');
+  const landed=await page.url();
+  if (original) {
+    const chatId = url => new URL(url).pathname.split('/').at(-1);
+    if (!chatUrl(landed) || chatId(landed)!==chatId(original)) throw Error('当前账号打不开原 Gemini 会话。请切回原账号，或新建聊天。');
+    if (!session.accountId && session.history?.length) {
+      try {
+        await page.waitForSelector('user-query',{timeout:12000});
+      } catch {
+        throw Error('无法确认旧聊天属于当前 Gemini 账号。请切回原账号，或新建聊天。');
+      }
+    }
+    session.url=landed;
+  }
+  const liveAccount=await checkAccount(page,account,session.accountId,10000);
+  session.accountId=liveAccount.id;
   await save();
   const selection = async () => readModelChoice(await page.evaluate(s => document.querySelector(s)?.ariaLabel,picker));
   async function verifySelection() {
@@ -189,8 +207,8 @@ export async function run(jobUrl) {
       await openModelMenu(page,mode);
       const optionSelector = '[role=menuitemradio][data-mode-id]';
       const hasMode = ({selector, name}) => Array.from(document.querySelectorAll(selector)).some(e =>
-        e.checkVisibility() && e.innerText.split('\n').some(line => line.trim() === '4 ' + name));
-      const selectionArgs = {selector:optionSelector,name:mode};
+        e.checkVisibility() && e.innerText.split('\n').some(line => line.trim() === name));
+      const selectionArgs = {selector:optionSelector,name:mode==='Auto'?'Auto':'4 '+mode};
       try {
         await page.waitForFunction(hasMode, selectionArgs, {timeout:8000});
       } catch (error) {
@@ -200,7 +218,7 @@ export async function run(jobUrl) {
       }
       const clicked = await page.evaluate(({selector,name})=>{
         const option=Array.from(document.querySelectorAll(selector)).find(e =>
-          e.checkVisibility() && e.innerText.split('\n').some(line => line.trim() === '4 ' + name));
+          e.checkVisibility() && e.innerText.split('\n').some(line => line.trim() === name));
         if (!option || option.getAttribute('aria-disabled') === 'true' ||
             option.getAttribute('data-mode-id')?.startsWith('upsell_') ||
             option.innerText.split('\n').includes('lock')) return false;
@@ -219,6 +237,7 @@ export async function run(jobUrl) {
     }
     // Reuse a verified setting only when the live picker explicitly confirms both values.
     const [liveModel,liveLevel]=await selection();
+    if (mode==='Auto') return;
     if (!session.url || session.checkedMode!==mode || session.checkedEffort!==effort ||
         liveModel!==mode || liveLevel?.toLowerCase()!==effort) {
       await setThinkingLevel(page, effort, mode);
@@ -230,7 +249,7 @@ export async function run(jobUrl) {
     if ((await selection())[0] !== mode) throw Error('网页确认的模型与 Codex 选择不符');
   }
   await verifySelection();
-  await note('网页已选中 Gemini 4 '+mode+' · '+effort+'。');
+  await note('网页已选中 '+modelLabel+(mode==='Auto'?'':' · '+effort)+'。');
   let verifyImages=0;
   async function attachImages() {
     if (!images.length) return;
@@ -259,6 +278,7 @@ export async function run(jobUrl) {
   }
   async function sendDraft(text) {
     await checkCancel();
+    await checkAccount(page,account,session.accountId);
     if (await page.evaluate(()=>!!document.querySelector('button[aria-label="Stop response"]')))
       throw Error('Gemini 网页仍在生成上一条回复，本次请求尚未发送。');
     if (session.url && session.history?.length) {
@@ -314,19 +334,36 @@ export async function run(jobUrl) {
     const send='button[aria-label="Send message"]:not([disabled]):not([aria-disabled=true])';
     await page.waitForSelector(send,{timeout:45000});
     await checkCancel();
+    await checkAccount(page,account,session.accountId);
     if (requestKey) {
       session.inflight={requestKey,marker,previous,end:endMarker};
       await save();
     }
-    await page.click(send);
+    const sent=await page.evaluate(selector=>{
+      const button=document.querySelector(selector);
+      if (!button?.checkVisibility() || button.closest('[inert]') ||
+          Array.from(document.querySelectorAll('dialog[open], [role=dialog], [aria-modal=true]'))
+            .some(dialog=>dialog.checkVisibility())) return false;
+      button.click();
+      return true;
+    },send);
+    if (!sent) {
+      delete session.inflight;
+      await save();
+      throw Error('Gemini 网页的发送按钮目前不可用。请在 Ego 检查是否有待处理的弹窗。消息尚未发送。');
+    }
     try {
       await page.waitForFunction(hasSubmittedTurn,marker,{timeout:30000});
     } catch (err) {
       if (!String(err).includes('timed out')) throw err;
       // Retry only when the exact unsent draft remains and no turn was created.
+      await checkAccount(page,account,session.accountId);
       await page.evaluate(({marker,text,send})=>{
         const button=document.querySelector(send);
-        if (!button || document.querySelector('button[aria-label="Stop response"]') ||
+        if (!button?.checkVisibility() || button.closest('[inert]') ||
+            Array.from(document.querySelectorAll('dialog[open], [role=dialog], [aria-modal=true]'))
+              .some(dialog=>dialog.checkVisibility()) ||
+            document.querySelector('button[aria-label="Stop response"]') ||
             Array.from(document.querySelectorAll('user-query')).some(query=>query.textContent.includes(marker)) ||
             document.querySelector('[contenteditable=true][role=textbox]')?.innerText.replace(/\r\n?/g,'\n').replace(/\u00a0/g,' ').trimEnd()!==text.replace(/\r\n?/g,'\n').replace(/\u00a0/g,' ').trimEnd()) return false;
         button.click();
@@ -336,7 +373,7 @@ export async function run(jobUrl) {
       // click again unless the exact draft is still present and idle.
       await page.waitForFunction(hasSubmittedTurn,marker,{timeout:30000});
     }
-    await note('已提交给 Gemini 4 '+mode+'，正在等待网页回复。');
+    await note('已提交给 '+modelLabel+'，正在等待网页回复。');
     await fs.appendFile(path.join(path.dirname(file),'sent.jsonl'),String(text.length)+'\n');
     if (verifyImages) {
       await page.waitForFunction(count=>{
@@ -393,7 +430,8 @@ export async function run(jobUrl) {
     }
     const [currentMode, currentLevel] = await selection();
     if (currentMode !== mode || (session.url && await page.url()!==session.url)) throw Error('模型或会话在回复期间改变');
-    if (currentLevel && currentLevel.toLowerCase() !== effort) throw Error('Thinking level changed during reply');
+    if (mode!=='Auto' && currentLevel && currentLevel.toLowerCase() !== effort) throw Error('Thinking level changed during reply');
+    await checkAccount(page,account,session.accountId);
     return await page.evaluate(() => {
       const root = Array.from(document.querySelectorAll('model-response')).at(-1)?.querySelector('message-content .markdown');
       if (!root) return '';

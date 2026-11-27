@@ -142,6 +142,7 @@ def ensure_login(state, *, force=False):
             return
         messages = {
             'login_required': 'Gemini 尚未登录。请在 Ego Lite 网页登录后重试。',
+            'verification_required': 'Google 网页需要验证。请在 Ego Lite 中完成验证后重试。',
             'region_unavailable': 'Gemini 网页提示当前地区暂不支持。网页可用后再检查。',
             'page_unavailable': '暂时无法确认登录。请在 Ego Lite 中确认 Gemini 已显示聊天输入框。',
             'browser_unavailable': '无法连接 Ego Lite。请先打开浏览器并完成 Ego Lite 的首次设置。',

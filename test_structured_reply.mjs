@@ -4,6 +4,7 @@ import { hasSubmittedTurn, openGemini, readModelChoice, structuredReply } from '
 
 test('Gemini picker and response details identify the selected Neon model', () => {
   assert.deepEqual(readModelChoice('Open mode picker, currently Neon High'), ['Neon', 'High']);
+  assert.equal(readModelChoice('Open mode picker, currently Auto')[0], 'Auto');
   assert.deepEqual(readModelChoice('Used Gemini 4 Neon High (preview)', true), ['Neon', 'High']);
 });
 

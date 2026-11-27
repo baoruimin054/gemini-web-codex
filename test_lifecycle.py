@@ -1,5 +1,7 @@
 import http.client
 import json
+from pathlib import Path
+import tempfile
 import threading
 import unittest
 from unittest.mock import patch
@@ -18,7 +20,7 @@ class GatewayLifecycleTests(unittest.TestCase):
                 cancelled.set()
             raise ConnectionResetError()
 
-        with patch.object(gateway, 'web_reply', worker):
+        with tempfile.TemporaryDirectory() as directory, patch.object(gateway, 'STATE', Path(directory)), patch.object(gateway, 'web_reply', worker):
             with gateway.ThreadingHTTPServer(('127.0.0.1', 0), gateway.Handler) as server:
                 server.key = 'test-only'
                 service = threading.Thread(target=server.serve_forever, daemon=True)

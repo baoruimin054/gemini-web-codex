@@ -8,6 +8,7 @@ dist/
 .env.*
 gateway.key
 quota.json
+account-selection.json
 cleanup-probes.json
 gemini-login-verified
 client/

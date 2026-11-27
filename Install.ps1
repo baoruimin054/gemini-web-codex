@@ -77,13 +77,13 @@ try { Install-EgoIfMissing -Runtime $runtime } finally { Pop-Location }
 if (-not $NoShortcut) {
     if (-not (Test-Path -LiteralPath $windowedRuntime)) { throw 'Pythonw.exe is missing from the environment.' }
     $desktop = [Environment]::GetFolderPath('Desktop')
-    $link = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desktop 'Gemini Codex Web.lnk'))
+    $link = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desktop 'GemCodex.lnk'))
     $link.TargetPath = $windowedRuntime
     $link.Arguments = '"' + (Join-Path $project 'desktop_launcher.pyw') + '"'
     $link.WorkingDirectory = $project
     $link.IconLocation = (Join-Path $project 'Gemini-Codex.ico') + ',0'
     $link.Save()
-    Write-Host 'Installed. Open the Gemini Codex Web desktop shortcut.'
+    Write-Host 'Installed. Open the GemCodex desktop shortcut.'
 }
 
 New-Item -ItemType File -Path (Join-Path $environment 'gemini-codex-installed') -Force | Out-Null

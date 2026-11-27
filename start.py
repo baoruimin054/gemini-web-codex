@@ -9,6 +9,7 @@ import json
 import urllib.request
 from pathlib import Path
 import gateway
+from account_selection import check_startup_account
 from web_profile import profile
 
 def launch_desktop(stop_event=None):
@@ -22,6 +23,7 @@ def launch_desktop(stop_event=None):
     desktop = Path(result.stdout.strip())
     if result.returncode or not desktop.is_file():
         raise SystemExit('找不到 Windows 已注册的 Codex 桌面程序。请检查 Codex 是否已安装。')
+    check_startup_account(gateway.STATE)
     data = gateway.STATE/'desktop'
     env = dict(os.environ,CODEX_HOME=str(gateway.STATE/'client'),CODEX_ELECTRON_USER_DATA_PATH=str(data))
     app=subprocess.Popen([str(desktop),'--user-data-dir='+str(data)],env=env)
@@ -74,7 +76,7 @@ def main():
         key=(gateway.STATE/'gateway.key').read_text()
         request=urllib.request.Request(f'http://127.0.0.1:{gateway.PORT}/codex/models',headers={'Authorization':'Bearer '+key})
         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request,timeout=3) as response:
-            if json.load(response) != gateway.catalog():
+            if not isinstance(json.load(response).get('models'), list):
                 raise SystemExit('本机端口已被其他服务占用。')
         return launch_desktop()
     with listener as server:

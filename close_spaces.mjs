@@ -25,8 +25,9 @@ export async function closeCodexSpaces(stateUrl, foregroundTitle = '') {
     const binding = saved?.record;
     if (saved) seen.push(path.basename(saved.file));
     if (!['agent', 'user'].includes(entry.ownership)) continue;
-    const quota = entry.createdBy === 'agent' && entry.name === 'Gemini usage monitor' && entry.ownership === 'agent';
-    if (!binding && !quota) continue;
+    const accountCheck = entry.createdBy === 'agent' && entry.ownership === 'agent' &&
+      ['Gemini usage monitor', 'GemCodex account startup'].includes(entry.name);
+    if (!binding && !accountCheck) continue;
     if (entry.name && entry.name === foregroundTitle) {
       deferred++;
       continue;
@@ -39,7 +40,7 @@ export async function closeCodexSpaces(stateUrl, foregroundTitle = '') {
       const matches = binding
         ? (binding.url ? tab?.url === binding.url : tab && tab.targetId === binding.targetId &&
           /^(?:about:blank|chrome:\/\/newtab\/|https:\/\/gemini\.google\.com(?:\/[^\s]*)?)$/.test(tab.url))
-        : /^https:\/\/gemini\.google\.com\/usage(?:[?#]|$)/.test(tab?.url ?? '');
+        : /^https:\/\/gemini\.google\.com\/(?:u\/\d+\/)?(?:app|usage)(?:[?#]|$)/.test(tab?.url ?? '');
       if (!matches) {
         if (entry.ownership === 'user') await task.finish({keep: 'all'});
         console.log('Kept space with changed tabs:', entry.id);
